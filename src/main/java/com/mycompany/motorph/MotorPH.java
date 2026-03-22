@@ -33,17 +33,21 @@ public class MotorPH {
     // LOGIN
     // =====================
 
+    /**
+     * Handles user login for employee or payroll staff.
+     */
     static String login() {
         System.out.print("Username: ");
-        String u = sc.nextLine().trim();
+        String username = sc.nextLine().trim(); // get username input
 
         System.out.print("Password: ");
-        String p = sc.nextLine().trim();
+        String password = sc.nextLine().trim(); // get password input
+        
+        // check if credentials match allowed users
+        if ((username.equals("employee") || username.equals("payroll_staff")) && password.equals("12345")) return username;
 
-        if ((u.equals("employee") || u.equals("payroll_staff")) && p.equals("12345")) return u;
-
-        System.out.println("Invalid login.");
-        System.exit(0);
+    System.out.println("Invalid login.");
+        System.exit(0); // terminate program if login fails
         return "";
     }
 
@@ -116,26 +120,31 @@ public class MotorPH {
     // CSV HELPERS
     // =====================
 
+    /**
+    * Parses a CSV line and handles quoted values with commas.
+    * @param line the raw CSV line
+    * @return array of column values
+    */
     static String[] parseCSVLine(String line) {
-        List<String> cols = new ArrayList<>();
-        StringBuilder cur = new StringBuilder();
+        List<String> columns = new ArrayList<>();
+        StringBuilder currentValue = new StringBuilder();
         boolean inQuotes = false;
 
+        // Loop through each character to properly split CSV values
         for (int i = 0; i < line.length(); i++) {
-            char ch = line.charAt(i);
+            char currentChar = line.charAt(i);
 
-            if (ch == '"') {
-                inQuotes = !inQuotes;
-            } else if (ch == ',' && !inQuotes) {
-                cols.add(cur.toString().trim());
-                cur.setLength(0);
+            if (currentChar == '"') {
+                inQuotes = !inQuotes; 
+            } else if (currentChar == ',' && !inQuotes) {
+                columns.add(currentValue.toString().trim()); // add column value
+                currentValue.setLength(0); // reset buffer
             } else {
-                cur.append(ch);
+                currentValue.append(currentChar);
             }
         }
-        cols.add(cur.toString().trim());
-
-        return cols.toArray(new String[0]);
+        columns.add(currentValue.toString().trim()); // add last value
+        return columns.toArray(new String[0]);
     }
 
     static String cleanMoney(String s) {
@@ -146,33 +155,46 @@ public class MotorPH {
     // LOAD EMPLOYEES
     // =====================
 
+    /**
+    *Loads employee data from CSV file and stores it in a HashMap.
+    *CSV Structure:
+    * Column 0 - Employee ID
+    * Column 1 - Last Name
+    * Column 2 - First Name
+    * Column 3 - Birthday
+    * Column 13 - Basic Salary
+    * Column 17 - Gross Semi-Monthly Salary
+    * Column 18 - Hourly Rate
+    */
     static void loadEmployees() {
         try {
-            BufferedReader br = new BufferedReader(new FileReader("MotorPH_Employee Data.csv"));
-            br.readLine(); // skip header
+            BufferedReader reader = new BufferedReader(new FileReader("MotorPH_Employee Data.csv"));
+            reader.readLine(); // skip header
 
             String line;
-            while ((line = br.readLine()) != null) {
-                String[] p = parseCSVLine(line);
-                if (p.length <= HOURLY_RATE_INDEX) continue;
+            while ((line = reader.readLine()) != null) {
+                String[] parts = parseCSVLine(line); // split CSV line into columns
 
-                String id          = p[0].trim();
-                String last        = p[1].trim();
-                String first       = p[2].trim();
-                String bday        = p[3].trim();
-                String basicSalary = cleanMoney(p[BASIC_SALARY_INDEX]);
-                String grossSemi   = cleanMoney(p[GROSS_SEMI_MONTHLY_INDEX]);
-                String hourlyRate  = cleanMoney(p[HOURLY_RATE_INDEX]);
+                //skip invalid rows with missing columns
+                if (parts.length <= HOURLY_RATE_INDEX) continue;
 
-                // [0]=last, [1]=first, [2]=bday, [3]=grossSemi, [4]=hourlyRate, [5]=basicSalary
-                employees.put(id, new String[]{last, first, bday, grossSemi, hourlyRate, basicSalary});
+                String employeeId      = parts[0].trim();
+                String lastName        = parts[1].trim();
+                String firstName       = parts[2].trim();
+                String birthday        = parts[3].trim();
+                String basicSalary = cleanMoney(parts[BASIC_SALARY_INDEX]);
+                String grossSemi   = cleanMoney(parts[GROSS_SEMI_MONTHLY_INDEX]);
+                String hourlyRate  = cleanMoney(parts[HOURLY_RATE_INDEX]);
+
+                // [0]=lastName, [1]=firstName, [2]=birthday, [3]=grossSemi, [4]=hourlyRate, [5]=basicSalary
+                employees.put(employeeId, new String[]{lastName, firstName, birthday, grossSemi, hourlyRate, basicSalary});
             }
 
-            br.close();
+            reader.close();
             System.out.println("Employees loaded: " + employees.size());
 
-        } catch (Exception e) {
-            System.out.println("Error loading employees: " + e.getMessage());
+        } catch (Exception error) {
+            System.out.println("Error loading employees: " + error.getMessage());
         }
     }
 
@@ -208,12 +230,16 @@ public class MotorPH {
     }
 
     // =====================
-    // CALCULATE HOURS
+    // CALCULATE WORK HOURS
     // =====================
 
+    /**
+    * Calculate total hours worked based on attendance records.
+    * Applies grace period, cutoff filtering, and daily hour limits.
+    */
     static double calcHours(String id, int cutoff, int targetMonth) {
         double total = 0.0;
-        DateTimeFormatter f = DateTimeFormatter.ofPattern("H:mm");
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("H:mm");
 
         LocalTime workStart  = LocalTime.of(8, 0);
         LocalTime graceEnd   = LocalTime.of(8, 10);
@@ -227,47 +253,56 @@ public class MotorPH {
 
             String line;
             while ((line = br.readLine()) != null) {
-                String[] p = parseCSVLine(line);
-                if (p.length < 6) continue;
-                if (!p[0].trim().equals(id)) continue;
+                String[] parts = parseCSVLine(line);
+                
+                if (parts.length < 6) continue;
+                if (!parts[0].trim().equals(id)) continue;
 
-                String[] d = p[3].trim().split("/");
-                int month = Integer.parseInt(d[0]);
-                int day   = Integer.parseInt(d[1]);
+                // Extract date info (MM/DD format)
+                String[] dateParts = parts[3].trim().split("/");
+                int month = Integer.parseInt(dateParts[0]);
+                int day   = Integer.parseInt(dateParts[1]);
 
+                // Filter by selected month
                 if (month != targetMonth) continue;
 
+                // Apply cutoff logic (1-15 or 16-end of month)
                 boolean inCutoff1 = (cutoff == 1 && day <= 15);
                 boolean inCutoff2 = (cutoff == 2 && day >= 16);
                 if (!(inCutoff1 || inCutoff2)) continue;
 
-                LocalTime timeIn  = LocalTime.parse(p[4].trim(), f);
-                LocalTime timeOut = LocalTime.parse(p[5].trim(), f);
+                LocalTime timeIn  = LocalTime.parse(parts[4].trim(), formatter);
+                LocalTime timeOut = LocalTime.parse(parts[5].trim(), formatter);
 
-                // Grace period: if clocked in at 8:10 or earlier, treat as 8:00
-                // If clocked in after 8:10, start counting from actual time in (late)
-                LocalTime effectiveIn = timeIn.isAfter(graceEnd) ? timeIn : workStart;
+                // Apply Grace period (8:00-8:10 treated as 8:00) 
+                LocalTime effectiveTimeIn = 
+                    timeIn.isAfter(graceEnd) ? timeIn : workStart;
 
-                // Cap time out at 5:00 PM — no overtime counted
-                LocalTime effectiveOut = timeOut.isAfter(workEnd) ? workEnd : timeOut;
+                // Cap working hours to 5:00 PM (no overtime)
+                LocalTime effectiveTimeOut =
+                    timeOut.isAfter(workEnd) ? workEnd : timeOut;
 
                 // Skip if employee clocked out before or at their start time
-                if (!effectiveOut.isAfter(effectiveIn)) continue;
+                if (!effectiveTimeOut.isAfter(effectiveTimeIn)) continue;
 
                 // Calculate minutes worked, subtract 1-hour lunch break
-                long minutesWorked = Duration.between(effectiveIn, effectiveOut).toMinutes() - lunchMinutes;
+                long minutesWorked = 
+                    Duration.between(effectiveTimeIn, effectiveTimeOut).toMinutes() 
+                    - lunchMinutes;
+                
                 if (minutesWorked < 0) minutesWorked = 0;
 
-                // Convert to hours and enforce 8-hour daily max
-                double hoursWorked = Math.min(minutesWorked / 60.0, maxHoursPerDay);
+                // Convert to hours and enforce 8-hour daily ma
+                double hoursWorked = 
+                    Math.min(minutesWorked / 60.0, maxHoursPerDay);
 
                 total += hoursWorked;
             }
 
             br.close();
 
-        } catch (Exception e) {
-            System.out.println("Attendance read error: " + e.getMessage());
+        } catch (Exception error) {
+            System.out.println("Attendance read error: " + error.getMessage());
         }
 
         return total;
@@ -277,6 +312,10 @@ public class MotorPH {
     // DISPLAY PAYROLL
     // =====================
 
+    /**
+    *Display payroll details including salary, deductions, and net pay.
+    * @param id employee ID
+    */
     static void displayPayroll(String id) {
         String[] e = employees.get(id);
 
